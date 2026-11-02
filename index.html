@@ -61,6 +61,8 @@ textarea{min-height:84px;resize:vertical}
 .q{font-weight:700;overflow-wrap:anywhere}
 .answers{list-style:none;margin:2px 0 0;padding:0 0 0 10px;border-left:3px solid var(--line);display:grid;gap:3px;overflow-wrap:anywhere}
 .muted{color:var(--muted)}
+.jk{opacity:.8;font-weight:600;margin-left:4px}
+.jokerRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -127,6 +129,7 @@ const ICON={
 // 6 Seiten: 1 Stern, 2 Katzen, 3 leer
 const FACES=["star","cat","cat","empty","empty","empty"];
 const FNAME={star:"Stern",cat:"Katze",empty:"Leer"};
+const JOKERS=2; // Joker pro Person und Spiel
 const LETTERS="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 // Öffentliche Nachrichten-Server (laufen über normales Internet, kein WLAN-Problem)
 const BROKERS=["wss://broker.emqx.io:8084/mqtt","wss://broker.hivemq.com:8884/mqtt"];
@@ -134,7 +137,7 @@ const TOPIC="fragewuerfel-ch/v2/";
 
 const $=id=>document.getElementById(id);
 const el=(tag,props={},kids=[])=>{const e=Object.assign(document.createElement(tag),props);kids.forEach(k=>e.append(k));return e};
-$("legend").innerHTML='<span>'+ICON.star+'1× Stern = Frage</span><span>'+ICON.cat+'2× Katze = nochmal</span><span>'+ICON.empty+'3× leer = nächster</span>';
+$("legend").innerHTML='<span>'+ICON.star+'1× Stern = Frage</span><span>'+ICON.cat+'2× Katze = nochmal</span><span>'+ICON.empty+'3× leer = nächster</span><span>🃏 2 Joker = Frage auslassen</span>';
 
 function rid(n){let s="";for(let i=0;i<n;i++)s+=LETTERS[Math.floor(Math.random()*LETTERS.length)];return s}
 let myId=null;
@@ -252,14 +255,14 @@ function checkAnswersDone(){if(S.q&&S.phase==="answer"&&S.q.waiting.length===0)S
 function act(id,msg){
   if(msg.t==="join"){
     if(!S.players.find(p=>p.id===id)&&S.players.length<10){
-      S.players.push({id,name:String(msg.name||"Gast").slice(0,20)});
+      S.players.push({id,name:String(msg.name||"Gast").slice(0,20),jokers:JOKERS});
       if(S.q&&S.phase==="answer"&&S.q.from!==id)S.q.waiting.push(id);
       publishState();
     }
     return;
   }
   if(!S.players.find(p=>p.id===id))return;
-  if(msg.t==="start"&&id===myId&&S.players.length>=2){S.started=true;S.turn=0;S.phase="roll";S.face=null;S.q=null;S.log=[];publishState();return}
+  if(msg.t==="start"&&id===myId&&S.players.length>=2){S.started=true;S.players.forEach(p=>p.jokers=JOKERS);S.turn=0;S.phase="roll";S.face=null;S.q=null;S.log=[];publishState();return}
   if(!S.started)return;
   if(msg.t==="roll"&&id===curId()&&(S.phase==="roll"||S.phase==="again")){
     S.face=FACES[Math.floor(Math.random()*6)];S.rollId++;
@@ -276,6 +279,13 @@ function act(id,msg){
   if(msg.t==="answer"&&S.phase==="answer"&&S.q&&S.q.waiting.includes(id)){
     const text=String(msg.text||"").trim().slice(0,300);if(!text)return;
     S.q.answers.push({name:nameOf(id),text});S.q.waiting=S.q.waiting.filter(w=>w!==id);
+    checkAnswersDone();publishState();return;
+  }
+  if(msg.t==="joker"&&S.phase==="answer"&&S.q&&S.q.waiting.includes(id)){
+    const p=S.players.find(p=>p.id===id);
+    if(!p||!(p.jokers>0))return;
+    p.jokers--;
+    S.q.answers.push({name:p.name,text:"🃏 Joker eingesetzt",joker:true});S.q.waiting=S.q.waiting.filter(w=>w!==id);
     checkAnswersDone();publishState();return;
   }
   if(msg.t==="next"&&(id===curId()||id===S.hostId)&&S.phase==="done"){
@@ -306,7 +316,7 @@ function render(){
   }
   show("game");
   const pl=$("players");pl.innerHTML="";
-  S.players.forEach((p,i)=>pl.append(el("span",{className:"pl"+(i===S.turn?" on":""),textContent:p.name+(p.id===myId?" (du)":"")})));
+  S.players.forEach((p,i)=>pl.append(el("span",{className:"pl"+(i===S.turn?" on":""),textContent:p.name+(p.id===myId?" (du)":""),title:(p.jokers||0)+" Joker übrig"},[el("span",{className:"jk",textContent:"🃏"+(p.jokers||0)})])));
   const myTurn=curId()===myId;
   const curName=nameOf(curId());
   $("turn").textContent=myTurn?"Du bist dran!":curName+" ist dran";
@@ -340,7 +350,13 @@ function renderStep(myTurn,curName){
       box.append(ul);
     }
     const iMustAnswer=S.phase==="answer"&&S.q.waiting.includes(myId);
-    if(iMustAnswer)box.append(textForm("aInput","Deine Antwort …","Antwort senden",t=>send({t:"answer",text:t}),fid==="aInput"?keep:""));
+    if(iMustAnswer){
+      box.append(textForm("aInput","Deine Antwort …","Antwort senden",t=>send({t:"answer",text:t}),fid==="aInput"?keep:""));
+      const me=S.players.find(p=>p.id===myId),left=(me&&me.jokers)||0;
+      const jb=el("button",{type:"button",className:"quiet",textContent:"🃏 Joker einsetzen",disabled:left<1});
+      jb.onclick=()=>{jb.disabled=true;send({t:"joker"})};
+      box.append(el("div",{className:"jokerRow"},[jb,el("span",{className:"muted",textContent:left===1?"Noch 1 Joker übrig":"Noch "+left+" Joker übrig"})]));
+    }
     else if(S.phase==="answer")box.append(el("p",{className:"muted",textContent:"Warte auf: "+S.q.waiting.map(nameOf).join(", ")}));
     if(S.phase==="done"&&(myTurn||isHost)){
       const b=el("button",{type:"button",className:"primary",textContent:"Weiter zum Nächsten"});
