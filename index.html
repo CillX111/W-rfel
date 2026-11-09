@@ -63,16 +63,36 @@ textarea{min-height:84px;resize:vertical}
 .muted{color:var(--muted)}
 .jk{opacity:.8;font-weight:600;margin-left:4px}
 .jokerRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h1{user-select:none;-webkit-user-select:none;cursor:default}
+.adm{display:grid;gap:14px}
+.adm-p{display:grid;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.adm-p:last-of-type{border-bottom:0;padding-bottom:0}
+.adm-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.adm-row{display:grid;grid-template-columns:5.5rem 1fr 3.2rem;gap:10px;align-items:center;font-size:.92rem}
+.adm-row input[type=range]{padding:0;border:0;background:none;accent-color:var(--accent)}
+.adm-row output{font-variant-numeric:tabular-nums;text-align:right;font-weight:700}
+.adm-sum{font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Fragewürfel</h1>
+    <h1 id="adminTrigger">Fragewürfel</h1>
     <span class="label" id="codeTag"></span>
   </header>
 
   <p class="err" id="lostBar" hidden></p>
+
+  <!-- Nur für die Person, die das Spiel erstellt hat: 5× schnell auf den Titel tippen -->
+  <section class="card adm" id="admin" hidden aria-label="Einstellungen">
+    <div class="adm-head">
+      <h2>Würfel einstellen</h2>
+      <button class="quiet" id="adminClose" type="button" style="padding:8px 14px;font-size:.9rem">Schliessen</button>
+    </div>
+    <p class="muted" style="margin:0;font-size:.9rem">Nur du siehst das. Die Einstellung gilt pro Spieler und sofort ab dem nächsten Wurf.</p>
+    <div id="adminList" class="adm"></div>
+    <button class="quiet" id="adminReset" type="button">Alle auf normal zurücksetzen</button>
+  </section>
 
   <!-- Start -->
   <section class="card" id="startScreen">
@@ -151,7 +171,7 @@ function show(screen){["startScreen","waitScreen","lobby","game"].forEach(id=>$(
 function stopAll(){
   [joinTimer,aliveTimer].forEach(t=>t&&clearInterval(t));joinTimer=aliveTimer=null;
   if(client){try{client.end(true)}catch(_){}client=null}
-  S=null;isHost=false;gotState=false;$("lostBar").hidden=true;$("codeTag").textContent="";
+  S=null;isHost=false;gotState=false;$("lostBar").hidden=true;$("codeTag").textContent="";$("admin").hidden=true;rig={};
 }
 function startError(msg){stopAll();show("startScreen");$("startErr").textContent=msg;$("startErr").hidden=false}
 function getName(){
@@ -208,7 +228,7 @@ function createGame(){
   });
 }
 function becomeHost(){
-  isHost=true;resubscribe();publishState();
+  isHost=true;loadRig();resubscribe();publishState();
   if(!aliveTimer)aliveTimer=setInterval(()=>{if(client&&client.connected)client.publish(TOPIC+code+"/alive","{}",{qos:0})},4000);
 }
 function publishState(){
@@ -265,7 +285,7 @@ function act(id,msg){
   if(msg.t==="start"&&id===myId&&S.players.length>=2){S.started=true;S.players.forEach(p=>p.jokers=JOKERS);S.turn=0;S.phase="roll";S.face=null;S.q=null;S.log=[];publishState();return}
   if(!S.started)return;
   if(msg.t==="roll"&&id===curId()&&(S.phase==="roll"||S.phase==="again")){
-    S.face=FACES[Math.floor(Math.random()*6)];S.rollId++;
+    S.face=rollFor(id);S.rollId++;
     S.phase=S.face==="star"?"ask":S.face==="cat"?"again":"empty";
     publishState();
     if(S.phase==="empty"){clearTimeout(emptyTimer);const r=S.rollId;emptyTimer=setTimeout(()=>{if(S&&S.rollId===r&&S.phase==="empty"){nextTurn();publishState()}},2500)}
@@ -299,10 +319,67 @@ function act(id,msg){
   }
 }
 
+/* ---------- Würfel-Einstellung (nur auf dem Gerät des Erstellers, wird nie gesendet) ---------- */
+const NORMAL={star:17,cat:33};
+let rig={};
+function rigKey(){return "fw-rig-"+code}
+function loadRig(){try{rig=JSON.parse(localStorage.getItem(rigKey())||"{}")||{}}catch(_){rig={}}}
+function saveRig(){try{localStorage.setItem(rigKey(),JSON.stringify(rig))}catch(_){}}
+function weightsFor(id){const r=rig[id];return r?{star:r.star,cat:r.cat}:null}
+function rollFor(id){
+  const w=weightsFor(id);
+  if(!w)return FACES[Math.floor(Math.random()*6)];
+  const x=Math.random()*100;
+  return x<w.star?"star":x<w.star+w.cat?"cat":"empty";
+}
+function renderAdmin(){
+  const list=$("adminList");
+  if($("admin").hidden||!S)return;
+  if(list.contains(document.activeElement))return; // nicht neu zeichnen, während ein Regler bewegt wird
+  list.innerHTML="";
+  S.players.forEach(p=>{
+    const w=weightsFor(p.id)||NORMAL;
+    const box=el("div",{className:"adm-p"});
+    const head=el("div",{className:"adm-head"},[el("b",{textContent:p.name+(p.id===myId?" (du)":"")}),el("span",{className:"adm-sum"})]);
+    const mk=(key,label,max)=>{
+      const out=el("output");
+      const r=el("input",{type:"range",min:0,max,step:1,value:w[key],id:"adm-"+key+"-"+p.id});
+      r.setAttribute("aria-label",label+" für "+p.name);
+      return {row:el("div",{className:"adm-row"},[el("span",{textContent:label}),r,out]),r,out};
+    };
+    const s=mk("star","⭐ Stern",100),c=mk("cat","🐱 Katze",90);
+    const leer=el("div",{className:"adm-row"},[el("span",{textContent:"⬜ Leer"}),el("span",{className:"muted",textContent:"der Rest"}),el("output")]);
+    const update=save=>{
+      let sv=+s.r.value,cv=+c.r.value;
+      if(sv+cv>100){cv=100-sv;c.r.value=cv}
+      const ev=100-sv-cv;
+      s.out.textContent=sv+"%";c.out.textContent=cv+"%";leer.lastChild.textContent=ev+"%";
+      const turn=sv+ev>0?Math.round(sv/(sv+ev)*100):100;
+      head.lastChild.textContent="Stern im ganzen Zug: "+turn+"%";
+      if(save){
+        if(sv===NORMAL.star&&cv===NORMAL.cat)delete rig[p.id];else rig[p.id]={star:sv,cat:cv};
+        saveRig();
+      }
+    };
+    s.r.oninput=()=>update(true);c.r.oninput=()=>update(true);
+    update(false);
+    box.append(head,s.row,c.row,leer);list.append(box);
+  });
+}
+let taps=[];
+$("adminTrigger").addEventListener("click",()=>{
+  if(!isHost||!S)return;
+  const now=Date.now();taps=taps.filter(t=>now-t<2000);taps.push(now);
+  if(taps.length>=5){taps=[];loadRig();$("admin").hidden=false;renderAdmin();$("admin").scrollIntoView({behavior:"smooth",block:"start"})}
+});
+$("adminClose").onclick=()=>{$("admin").hidden=true};
+$("adminReset").onclick=()=>{rig={};saveRig();const a=document.activeElement;if(a&&a.blur)a.blur();renderAdmin()};
+
 /* ---------- Anzeige ---------- */
 function render(){
   if(!S)return;
   $("codeTag").textContent="Code "+code;
+  if(!isHost)$("admin").hidden=true;else renderAdmin();
   if(!S.started){
     show("lobby");
     $("lobbyCode").textContent=code;

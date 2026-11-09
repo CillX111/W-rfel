@@ -10,7 +10,7 @@ Ein Würfelspiel mit Freunden, jeder auf seinem eigenen Gerät. Verbindet euch m
 ## Spielen
 
 - **Im Browser oder am Handy:** https://cillx111.github.io/W-rfel/
-- **Windows-Programm:** [Fragewuerfel-Windows.zip herunterladen](https://github.com/CillX111/W-rfel/releases/download/windows/Fragewuerfel-Windows.zip)
+- **Windows-Programm:** [Fragewuerfel-Windows.zip herunterladen](https://github.com/CillX111/W-rfel/releases/latest/download/Fragewuerfel-Windows.zip)
   1. Rechtsklick auf die ZIP-Datei → **Alle extrahieren**
   2. **Fragewuerfel.exe** doppelklicken
   3. Falls Windows warnt: **Weitere Informationen** → **Trotzdem ausführen**

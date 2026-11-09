@@ -2,6 +2,7 @@ name: Windows-Programm bauen
 
 on:
   push:
+    branches: [main]
     paths:
       - "index.html"
       - "windows/**"
@@ -31,11 +32,15 @@ jobs:
           mv Fragewuerfel-win32-x64 Fragewuerfel
           zip -qr9 ../Fragewuerfel-Windows.zip Fragewuerfel
 
+      - name: Version lesen
+        id: ver
+        run: echo "major=$(node -p "require('./windows/package.json').version.split('.')[0]")" >> "$GITHUB_OUTPUT"
+
       - name: Als Download bereitstellen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: windows
-          name: Fragewürfel für Windows
+          tag_name: v${{ steps.ver.outputs.major }}
+          name: Fragewürfel ${{ steps.ver.outputs.major }} für Windows
           make_latest: true
           body: |
             Fragewürfel für Windows.
