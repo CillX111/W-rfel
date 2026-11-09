@@ -1,0 +1,46 @@
+name: Windows-Programm bauen
+
+on:
+  push:
+    paths:
+      - "index.html"
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Programm bauen
+        run: |
+          cp index.html windows/index.html
+          npx --yes @electron/packager@18.3.6 ./windows Fragewuerfel \
+            --platform=win32 --arch=x64 --electron-version=33.4.11 \
+            --out=out --overwrite
+          cd out
+          mv Fragewuerfel-win32-x64 Fragewuerfel
+          zip -qr9 ../Fragewuerfel-Windows.zip Fragewuerfel
+
+      - name: Als Download bereitstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows
+          name: Fragewürfel für Windows
+          make_latest: true
+          body: |
+            Fragewürfel für Windows.
+            1. Fragewuerfel-Windows.zip herunterladen
+            2. Rechtsklick → Alle extrahieren
+            3. Fragewuerfel.exe doppelklicken
+            (Windows-Warnung: Weitere Informationen → Trotzdem ausführen)
+          files: Fragewuerfel-Windows.zip
